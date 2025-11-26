@@ -1,6 +1,60 @@
 import java.util.*;
 import java.util.concurrent.*;
 
+class User {
+    private final String id;
+    private final Role role;
+
+    public User(String id, Role role) {
+        if (id == null || id.trim().isEmpty()) throw new IllegalArgumentException("User ID can't be null");
+        Objects.requireNonNull(role, "User role can't be null");
+        this.id = id;
+        this.role = role;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+}
+
+enum Action {
+    CREATE, READ, UPDATE, DELETE
+}
+
+interface AuthorizationStrategy {
+    public boolean authorize(User user, Action action);
+}
+
+enum Role {
+    EMPLOYEE(0),
+    MANAGER(1),
+    ADMIN(2);
+
+    private int rank;
+
+    Role(int rank) {
+        this.rank = rank;
+    }
+
+    public boolean hasMinimumRank(Role other) {
+        return this.rank >= other.rank;
+    }
+}
+
+class WarehouseInventoryAuthorizationStrategy implements AuthorizationStrategy {
+    @Override
+    public boolean authorize(User user, Action action) {
+        Role role = user.getRole();
+        switch(action) {
+            case CREATE: return role.hasMinimumRank(Role.ADMIN);
+            case READ: return role.hasMinimumRank(Role.EMPLOYEE);
+            case UPDATE: return role.hasMinimumRank(Role.MANAGER);
+            case DELETE: return role.hasMinimumRank(Role.ADMIN);
+            default: return false;
+        }
+    }
+}
+
 enum ProductType {
     ELECTRONICS, GROCERY
 }
