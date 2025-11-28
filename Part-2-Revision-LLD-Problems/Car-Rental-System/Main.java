@@ -1,12 +1,13 @@
 import java.util.*;
 import java.time.*;
+import java.util.stream.*;
 
 enum VehicleType {
     CAR_SUV // Can be extended later based on requirements
 }
 
 enum BookingStatus {
-    CONFIRMED, COMPLETED
+    CONFIRMED, COMPLETED // Later 'CANCELLED' Status can also be added, depending on business requirements
 }
 
 class Booking {
@@ -18,6 +19,8 @@ class Booking {
 
     public Booking(Vehicle vehicle, Instant startTime, Instant endTime) {
         if (vehicle == null || startTime == null || endTime == null) throw new IllegalArgumentException("Invalid parameters passed for booking");
+        // UPDATE: Add validation to check that start time should be >= end time
+        if (!startTime.isBefore(endTime)) throw new IllegalArgumentException("Start time must be before end time");
         this.vehicle = vehicle;
         this.startTime = startTime;
         this.endTime = endTime;
@@ -68,9 +71,11 @@ class Booking {
         return Duration.between(startTime, endTime);
     }
 
-    // TODO: Override toString method and print the attributes
-
-    // Write getters as necessary
+    // UPDATE: Implemented toString method and print all the attributes
+    @Override
+    public String toString() {
+        return "Booking{" + "vehicle ID =" + vehicle.getId() + ", vehicleType=" + vehicle.getType() + ", status=" + status + ", startTime=" + startTime + ", endTime=" + endTime +", releaseTime=" + releaseTime + ", duration="+ getBookingDuration().toHours() + "h" +'}';
+    }
 }
 
 abstract class Vehicle {
@@ -84,16 +89,38 @@ abstract class Vehicle {
         this.type = vehicleType;
     }
 
+    public String getId() {
+        return id;
+    }
+
     public VehicleType getType() {
         return type;
     }
 
-    // Write getters as necessary
+    // UPDATE: Implement toString method for Vehicle
+    @Override
+    public String toString() {
+        return "Vehicle {" + "id=" + id + ", type= " + type + "}";
+    }
+
+    // UPDATE: CRITICAL -> Implement equals() and hashCode() methods, since we are using vehicle as a key in hashmap, it is critical
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof Vehicle)) return false;
+        Vehicle other = (Vehicle) obj;
+        return this.id.equals(other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
 }
 
 class SuvCar extends Vehicle {
 
-    public SuvCar(String id, long baseFare, long hourlyFare) {
+    public SuvCar(String id) {
         super(id, VehicleType.CAR_SUV);
     }
 }
@@ -114,7 +141,7 @@ class RentalStore {
     }
 
     public boolean isOverlappingActiveBooking(Booking booking, Instant startTime, Instant endTime) {
-        if (booking == null) return false;
+        if (booking == null || startTime == null || endTime == null) return false;
         if (!booking.isActive()) return false;
         Instant bookingStartTime = booking.getStartTime();
         Instant bookingEndTime = booking.getEndTime();
@@ -124,21 +151,25 @@ class RentalStore {
 
     public List <Vehicle> getVehicles(VehicleType vehicleType, Instant startTime, Instant endTime) {
         if (vehicleType == null || startTime == null || endTime == null) throw new IllegalArgumentException("Invalid parameter(s) passed to getVehicles");
+        if (!startTime.isBefore(endTime)) throw new IllegalArgumentException("Start time must be before end time");
+
         List <Vehicle> availableVehicles = new ArrayList<>();
-        // TODO: Convert to stream
-        for (Vehicle vehicle: vehicles) {
-            if (vehicle.getType() == vehicleType) {
-                List <Booking> bookings = vehicleBookings.get(vehicle);
-                boolean isVehicleAvailable = bookings.stream().noneMatch(booking -> isOverlappingActiveBooking(booking,startTime,endTime));
-                if (isVehicleAvailable) availableVehicles.add(vehicle);
-            }
-        }
-        return availableVehicles;
+
+        return vehicles.stream().filter(vehicle -> vehicle.getType() == vehicleType)
+                                .filter(vehicle -> {
+                                    List <Booking> bookings = vehicleBookings.get(vehicle);
+                                    return bookings.stream().noneMatch(booking -> isOverlappingActiveBooking(booking, startTime, endTime));
+                                }).collect(Collectors.toList());
     }
 
     // client side code is going to run in single threaded environment, so no need of concurrency control
     public Booking createBooking(Vehicle vehicle, Instant startTime, Instant endTime) {
         if (vehicle == null || startTime == null || endTime == null) throw new IllegalArgumentException("Invalid parameter(s) passed to createBooking");
+        // UPDATE: Add validation to check that startTime >= endTime
+        if (!startTime.isBefore(endTime)) throw new IllegalArgumentException("Start time must be before end time");
+        // UPDATE: Add validation that vehicle exists in the store
+        if (!vehicleBookings.containsKey(vehicle)) throw new IllegalArgumentException("Vehicle not found in rental store");
+
         boolean isVehicleUnavailable = vehicleBookings.get(vehicle).stream().anyMatch(booking -> isOverlappingActiveBooking(booking,startTime,endTime));
         if (isVehicleUnavailable) throw new IllegalArgumentException("Active booking for this vehicle already exists");
         Booking booking = new Booking(vehicle, startTime, endTime);
@@ -153,6 +184,19 @@ class RentalStore {
         VehicleType vehicleType = booking.getVehicleType();
         long amount = RentCalculatorFactory.create(vehicleType).calculate(booking);
         return paymentStrategy.pay(amount);
+    }
+
+    // UPDATE: Add method to get all bookings for a vehicle (all historical+active bookings for a vehicle), this method will be used in the client side testing code
+    public List <Booking> getBookingsForVehicle(Vehicle vehicle) {
+        if (vehicle == null) throw new IllegalArgumentException("Vehicle cannot be null");
+        List <Booking> bookings = vehicleBookings.get(vehicle);
+        // Returning a copy of the original list
+        return bookings!=null ? new ArrayList<>(bookings) : new ArrayList<>();
+    }
+
+    // UPDATE: Add a method to get all vehicles of rental store (Will be used by client side testing code)
+    public List <Vehicle> getAllVehicles() {
+        return new ArrayList<>(vehicles);
     }
 }
 
@@ -172,6 +216,10 @@ interface PaymentStrategy {
 class UPIPaymentStrategy implements PaymentStrategy {
     @Override
     public boolean pay(long amount) {
+        if (amount < 0) {
+            System.out.println("Cannot process payment with negative amount");
+            return false;
+        }
         System.out.println("Paying amount: " + amount + " by UPI");
         return true;
     }
@@ -216,8 +264,54 @@ class SUVCarRentCalculationStrategy implements RentCalculationStrategy {
 
 public class Main {
     public static void main(String [] args) {
+        // UPDATED: Added comprehensive example usage
+        System.out.println("=== Car Rental System Demo ===\n");
 
+        // Create rental store
+        RentalStore store = new RentalStore();
 
+        // Add vehicles
+        Vehicle suv1 = new SuvCar("SUV-001");
+        Vehicle suv2 = new SuvCar("SUV-002");
 
+        store.addVehicle(suv1);
+        store.addVehicle(suv2);
+
+        System.out.println("Added vehicles to store:");
+        store.getAllVehicles().forEach(System.out::println);
+        System.out.println();
+
+        // Create booking
+        Instant now = Instant.now();
+        Instant startTime = now.plus(Duration.ofHours(1));
+        Instant endTime = startTime.plus(Duration.ofHours(5));
+
+        System.out.println("Checking available SUVs...");
+        List<Vehicle> availableSUVs = store.getVehicles(VehicleType.CAR_SUV, startTime, endTime);
+        System.out.println("Available SUVs: " + availableSUVs.size());
+
+        if (!availableSUVs.isEmpty()) {
+            Vehicle selectedVehicle = availableSUVs.get(0);
+            System.out.println("Selected vehicle: " + selectedVehicle.getId());
+
+            // Create booking
+            Booking booking = store.createBooking(selectedVehicle, startTime, endTime);
+            System.out.println("Booking created: " + booking);
+            System.out.println();
+
+            // Simulate time passing and complete booking
+            System.out.println("Completing booking...");
+            booking.release();
+
+            // Calculate and pay
+            PaymentStrategy paymentStrategy = new UPIPaymentStrategy();
+            boolean paymentSuccess = store.completeBooking(booking, paymentStrategy);
+            System.out.println("Payment successful: " + paymentSuccess);
+            System.out.println();
+
+            // Show booking history
+            System.out.println("Booking history for " + selectedVehicle.getId() + ":");
+            store.getBookingsForVehicle(selectedVehicle).forEach(System.out::println);
+        }
     }
 }
