@@ -1,6 +1,7 @@
 import java.util.*;
 import java.util.concurrent.*;
 
+
 interface Cache <K,V> {
     public V getByKey(K key);
     public void put(K key, V value);
